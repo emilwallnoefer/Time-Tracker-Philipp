@@ -20,7 +20,7 @@
     #fxCanvas{position:fixed;inset:0;z-index:0;pointer-events:none;filter:blur(10px)}
     .fx-top{position:relative;z-index:1;width:100%;margin:0 auto}
 
-    .topbar{position:sticky;top:0;display:flex;gap:10px;align-items:center;padding:10px var(--pad);background:#0f1118aa;border-bottom:1px solid var(--stroke);backdrop-filter:saturate(180%) blur(8px);z-index:10}
+    .topbar{position:sticky;top:0;display:flex;gap:10px;align-items:center;padding:calc(10px + env(safe-area-inset-top, 0px)) var(--pad) 10px var(--pad);background:#0f1118aa;border-bottom:1px solid var(--stroke);backdrop-filter:saturate(180%) blur(8px);z-index:10}
     .title{font-weight:800; font-size:18px; text-align:center; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
     .btn{border:1px solid var(--stroke);background:#181b24;color:var(--text);border-radius:12px;padding:10px 14px;box-shadow:var(--glow);touch-action:manipulation}
     .btn.small{padding:8px 10px;font-size:12px;border-radius:10px}
@@ -31,7 +31,7 @@
     .menu-dd.show{ display:block; }
     .menu-dd button{ display:block; width:100%; margin:4px 0; }
 
-    .view{display:none;padding:12px var(--pad);position:relative;z-index:1}
+    .view{display:none;padding:calc(12px) var(--pad);position:relative;z-index:1}
     .view.active{display:block;animation:fade .25s ease both}
     @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
@@ -202,7 +202,7 @@ html, body { overflow-x: hidden; }
       </div>
       <div class="line-stats"><span class="pill" id="pillWeek">Weekly hours: 0h 00m</span><span class="pill" id="pillBank">Overtime bank: 0h 00m</span></div>
     </div>
-    <div class="version version-menu">Hour Logger 40</div>
+    <div class="version version-menu">Hour Logger 50</div>
   </section>
 
   <!-- CALENDAR -->
@@ -219,7 +219,7 @@ html, body { overflow-x: hidden; }
       <div id="weekStrip" class="week-strip"></div>
       <div class="cal-footer" id="calFooter"></div>
     </div>
-    <div class="version">Hour Logger 40</div>
+    <div class="version">Hour Logger 50</div>
   </section>
 
   <!-- LOGGER -->
@@ -249,7 +249,7 @@ html, body { overflow-x: hidden; }
       <button class="btn primary" id="btnSave">Save day</button>
       <button class="btn" id="btnResetWork" style="white-space:nowrap">Reset this day</button>
     </div>
-    <div class="version">Hour Logger 40</div>
+    <div class="version">Hour Logger 50</div>
   </section>
 
   <!-- Focus bubble -->
@@ -278,7 +278,7 @@ html, body { overflow-x: hidden; }
   </div>
 
   <script>
-    const APP_VERSION = "40";
+    const APP_VERSION = "50";
 
     // Toast
     const __toast = document.getElementById('toast');
@@ -299,7 +299,7 @@ html, body { overflow-x: hidden; }
     mDark .addEventListener('click', ()=>{ setTheme('dark');  menuDD.classList.remove('show'); });
 
     // Constants & state
-    const TARGET=504, KEY='hourlogger.40';
+    const TARGET=504, KEY='hourlogger.50';
     const state=JSON.parse(localStorage.getItem(KEY)||'{}'); state.work ||= {}; state.comp ||= {};
     const save=()=>localStorage.setItem(KEY, JSON.stringify(state));
     const pad=n=>String(n).padStart(2,'0');
