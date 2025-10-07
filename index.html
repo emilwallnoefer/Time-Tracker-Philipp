@@ -159,19 +159,36 @@ html, body { overflow-x: hidden; }
 #breaksPane{ width:100%; max-height:300px; overflow:auto; }
 .break-item{ display:grid; gap:8px; width:100%; margin:10px 0; }
 .break-item .bi-name-block input{ font-size:14px; padding:10px }
-.break-item .bi-times{ display:grid; grid-template-columns:1fr 1fr; gap:8px }
-.break-item .bi-times input{ width:100%; text-align:center; font-size:14px; padding:10px }
+.break-item .bi-dur{ display:grid; grid-template-columns:1fr 1fr; gap:8px }
+.break-item .bi-dur input{ width:100%; text-align:center; font-size:14px; padding:10px }
 .break-item .bi-remove{ width:100%; padding:10px 12px; }
 
 /* small phones */
 @media (max-width:420px){
-  .break-item .bi-times{ gap:6px }
-  .break-item .bi-name-block input, .break-item .bi-times input{ font-size:13px; padding:9px }
+  .break-item .bi-dur{ gap:6px }
+  .break-item .bi-name-block input, .break-item .bi-dur input{ font-size:13px; padding:9px }
 }
 @media (max-width:360px){
-  .break-item .bi-times{ grid-template-columns:1fr; }
+  .break-item .bi-dur{ grid-template-columns:1fr; }
 }
 
+
+    .quick-sync{ text-align:center; margin-top:6px }
+    .quick-sync .last{ color: var(--muted); font-size:11px; margin:6px 0 }
+    .quick-sync .qs-actions{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap }
+    
+
+    /* v74: fixed quick-sync footer */
+    .quick-sync.qs-fixed{
+      position:fixed; left:0; right:0; bottom:0; z-index:90;
+      padding:8px 12px; background:#0f1118dd; border-top:1px solid var(--stroke);
+      backdrop-filter:saturate(180%) blur(8px);
+      display:grid; gap:6px; justify-items:center;
+    }
+    .quick-sync.qs-fixed .last{ margin:0; font-size:11px; color:var(--muted); }
+    .quick-sync.qs-fixed .qs-actions{ display:flex; gap:8px; flex-wrap:wrap; justify-content:center }
+    .view{ padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 120px); }
+    
 </style>
 </head>
 <body>
@@ -185,6 +202,7 @@ html, body { overflow-x: hidden; }
     <div class="menu-dd" id="menuDD">
       <button class="btn small" id="mLight">Light</button>
       <button class="btn small" id="mDark">Dark</button>
+      <button class="btn small" id="mSync">Cloud sync…</button>
     </div>
   </div>
 
@@ -202,8 +220,28 @@ html, body { overflow-x: hidden; }
       </div>
       <div class="line-stats"><span class="pill" id="pillWeek">Weekly hours: 0h 00m</span><span class="pill" id="pillBank">Overtime bank: 0h 00m</span></div>
     </div>
-    <div class="version version-menu">Hour Logger 50</div>
+    <div class="version version-menu">Hour Logger 76</div>
   </section>
+
+  <!-- Cloud Sync Panel -->
+  <div id="syncPanel" style="display:none; position:fixed; inset:0; z-index:70;">
+    <div id="syncBackdrop" style="position:absolute; inset:0; background:#0007; backdrop-filter:blur(10px)"></div>
+    <div style="position:fixed; left:16px; right:16px; top:calc(env(safe-area-inset-top,0px) + 64px); background:var(--card); border:1px solid var(--stroke); border-radius:14px; padding:14px; box-shadow:0 24px 80px #0008;">
+      <div style="font-weight:800; margin-bottom:8px;">Cloud sync (GitHub)</div>
+      <div style="display:grid; gap:8px;">
+        <input id="ghOwner" type="text" placeholder="GitHub owner (username/org)" />
+        <input id="ghRepo" type="text" placeholder="Repository name" />
+        <input id="ghBranch" type="text" placeholder="Branch (main)" />
+        <input id="ghPath" type="text" placeholder="File path (e.g., data/hourlogger-data.json)" />
+        <input id="ghToken" type="password" placeholder="Personal Access Token (repo: read/write)"/>
+        <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap">
+          <button class="btn small primary" id="ghSave">Save to GitHub</button>
+        </div>
+        <p style="font-size:12px; color:var(--muted); margin:4px 0 0">Token is stored only on this device. The JSON stays in GitHub.</p>
+      </div>
+    </div>
+  </div>
+
 
   <!-- CALENDAR -->
   <section id="view-calendar" class="view fx-top"><div class="page-wrap">
@@ -219,7 +257,7 @@ html, body { overflow-x: hidden; }
       <div id="weekStrip" class="week-strip"></div>
       <div class="cal-footer" id="calFooter"></div>
     </div>
-    <div class="version">Hour Logger 50</div>
+    <div class="version">Hour Logger 76</div>
   </section>
 
   <!-- LOGGER -->
@@ -249,7 +287,7 @@ html, body { overflow-x: hidden; }
       <button class="btn primary" id="btnSave">Save day</button>
       <button class="btn" id="btnResetWork" style="white-space:nowrap">Reset this day</button>
     </div>
-    <div class="version">Hour Logger 50</div>
+    <div class="version">Hour Logger 76</div>
   </section>
 
   <!-- Focus bubble -->
@@ -278,7 +316,7 @@ html, body { overflow-x: hidden; }
   </div>
 
   <script>
-    const APP_VERSION = "50";
+    const APP_VERSION = "76";
 
     // Toast
     const __toast = document.getElementById('toast');
@@ -299,9 +337,30 @@ html, body { overflow-x: hidden; }
     mDark .addEventListener('click', ()=>{ setTheme('dark');  menuDD.classList.remove('show'); });
 
     // Constants & state
-    const TARGET=504, KEY='hourlogger.50';
-    const state=JSON.parse(localStorage.getItem(KEY)||'{}'); state.work ||= {}; state.comp ||= {};
-    const save=()=>localStorage.setItem(KEY, JSON.stringify(state));
+    const TARGET=504, STORE_KEY='hourlogger.data'; const KEY=STORE_KEY;
+// Load + migrate from old hourlogger.NN
+function loadState(){
+  const raw = localStorage.getItem(STORE_KEY);
+  if(raw){ try{ const o=JSON.parse(raw); if(o && typeof o==='object') return o; }catch(e){} }
+  let best=null, bestVer=-1;
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i)||''; const m=/^hourlogger\.(\d+)$/.exec(k);
+    if(m){ const v=parseInt(m[1],10);
+      try{ const o=JSON.parse(localStorage.getItem(k)); if(o && typeof o==='object' && v>bestVer){ best=o; bestVer=v; } }catch(e){}
+    }
+  }
+  if(best){ localStorage.setItem(STORE_KEY, JSON.stringify(best)); return best; }
+  return { work:{}, comp:{} };
+}
+const state = loadState(); if(!state.work) state.work={}; if(!state.comp) state.comp={};
+function save(){
+  localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  try{ document.dispatchEvent(new CustomEvent('hourlogger:saved')); }catch(_){}
+  try{ if(window.hourloggerCloud && window.hourloggerCloud.auto && typeof window.hourloggerCloud.saveSilently==='function'){ window.hourloggerCloud.saveSilently(); } }catch(_){}
+}
+// ask browser to persist storage (reduces eviction)
+if(navigator.storage && navigator.storage.persist){ navigator.storage.persist(); }
+
     const pad=n=>String(n).padStart(2,'0');
     const toDateStr=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
     const startOfWeekMon=d=>{const x=new Date(d);const wd=(x.getDay()+6)%7;x.setDate(x.getDate()-wd);x.setHours(0,0,0,0);return x};
@@ -316,19 +375,101 @@ html, body { overflow-x: hidden; }
     const dayBankDelta=ds=>{ if(isHoliday(ds)) return 0; const w=workMins(ds), c=compMins(ds); return Math.max(0, w - TARGET) - c; };
     const overtimeBank=()=>{ const dates=new Set([...Object.keys(state.work),...Object.keys(state.comp)]); let t=0; dates.forEach(ds=>t+=dayBankDelta(ds)); return t; };
 
-    // Background FX (RGB glow particles)
-    const fx=document.getElementById('fxCanvas'),ctxFX=fx.getContext('2d'); let DPR=Math.max(1,Math.min(2,window.devicePixelRatio||1)),W=0,H=0,particles=[];
+    
+    // Background FX v74: underwater light rays + rising bubbles
+    const fx=document.getElementById('fxCanvas'),ctxFX=fx.getContext('2d'); let DPR=Math.max(1,Math.min(2,window.devicePixelRatio||1)),W=0,H=0;
+    let rays=[], bubbles=[];
     function resizeFX(){W=fx.width=Math.floor(innerWidth*DPR);H=fx.height=Math.floor(innerHeight*DPR);fx.style.width=innerWidth+'px';fx.style.height=innerHeight+'px';}
-    function rnd(a,b){return a+Math.random()*(b-a)}
-    function initParticles(){ const count=12; particles=Array.from({length:count},()=>({x:rnd(0,W),y:rnd(0,H),r:rnd(70,140)*DPR,a:rnd(0,Math.PI*2),s:rnd(0.1,0.35),h:rnd(0,360)})); }
-    function drawFX(){ ctxFX.clearRect(0,0,W,H); ctxFX.globalCompositeOperation='lighter'; for(const p of particles){ p.a+=0.002*p.s; p.x+=Math.cos(p.a)*0.25*DPR; p.y+=Math.sin(p.a)*0.25*DPR; p.h=(p.h+0.06)%360; const g=ctxFX.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r); g.addColorStop(0,`hsla(${p.h},90%,60%,.16)`); g.addColorStop(1,`hsla(${(p.h+60)%360},90%,50%,0)`); ctxFX.fillStyle=g; ctxFX.beginPath(); ctxFX.arc(p.x,p.y,p.r,0,Math.PI*2); ctxFX.fill(); } requestAnimationFrame(drawFX); }
-    addEventListener('resize',()=>{resizeFX();initParticles();}); resizeFX(); initParticles(); drawFX();
+    function initRays(){
+      const n=5; rays=[];
+      for(let i=0;i<n;i++){
+        rays.push({
+          x: Math.random()*W*0.3,
+          y: -H*0.2 - Math.random()*H*0.3,
+          w: (80+Math.random()*120)*DPR,
+          a: 0.05 + Math.random()*0.08,
+          s: 0.2 + Math.random()*0.5,
+          o: 0.05 + Math.random()*0.07
+        });
+      }
+    }
+    function initBubbles(){
+      bubbles=[];
+      const n = Math.max(24, Math.floor(W/40));
+      for(let i=0;i<n;i++){
+        bubbles.push({
+          x: Math.random()*W,
+          y: H + Math.random()*H,
+          r: (1 + Math.random()*3)*DPR,
+          vy: (0.2 + Math.random()*0.6)*DPR,
+          drift: (Math.random()*0.4-0.2)*DPR,
+          phase: Math.random()*Math.PI*2
+        });
+      }
+    }
+    function drawRays(t){
+      for(const r of rays){
+        // gentle sway
+        const sway = Math.sin(t*0.0006 + r.x*0.0002)*r.w*0.15;
+        const x0 = r.x + sway;
+        const grad = ctxFX.createLinearGradient(x0, 0, x0, H);
+        grad.addColorStop(0, `rgba(120,200,255,${r.o})`);
+        grad.addColorStop(1, `rgba(120,200,255,0)`);
+        ctxFX.fillStyle = grad;
+        ctxFX.globalCompositeOperation='screen';
+        ctxFX.beginPath();
+        ctxFX.moveTo(x0 - r.w, 0);
+        ctxFX.lineTo(x0 + r.w, 0);
+        ctxFX.lineTo(x0 + r.w*1.6, H);
+        ctxFX.lineTo(x0 - r.w*1.6, H);
+        ctxFX.closePath();
+        ctxFX.fill();
+      }
+    }
+    function drawBubbles(t){
+      ctxFX.globalCompositeOperation='lighter';
+      for(const b of bubbles){
+        b.y -= b.vy;
+        b.x += Math.sin(t*0.002 + b.phase)*0.4*DPR + b.drift*0.02;
+        ctxFX.beginPath(); ctxFX.arc(b.x,b.y,b.r,0,Math.PI*2);
+        ctxFX.fillStyle='rgba(210,240,255,0.20)'; ctxFX.fill();
+        ctxFX.lineWidth=0.6*DPR; ctxFX.strokeStyle='rgba(255,255,255,0.25)'; ctxFX.stroke();
+        if(b.y < -10*DPR){ b.y = H + Math.random()*H*0.5; b.x = Math.random()*W; }
+      }
+    }
+    function drawFX(t){
+      ctxFX.clearRect(0,0,W,H);
+      // deep water background gradient
+      const g=ctxFX.createLinearGradient(0,0,0,H);
+      g.addColorStop(0,'#0c1c2a'); g.addColorStop(1,'#041018');
+      ctxFX.fillStyle=g; ctxFX.fillRect(0,0,W,H);
+      // light source glow at top-left
+      const gl=ctxFX.createRadialGradient(W*0.05,H*0.02,0,W*0.05,H*0.02,Math.max(W,H)*0.5);
+      gl.addColorStop(0,'rgba(140,220,255,0.25)'); gl.addColorStop(1,'rgba(140,220,255,0)');
+      ctxFX.globalCompositeOperation='screen'; ctxFX.fillStyle=gl; ctxFX.fillRect(0,0,W,H);
+      drawRays(t);
+      drawBubbles(t);
+      requestAnimationFrame(drawFX);
+    }
+    addEventListener('resize',()=>{resizeFX();initRays();initBubbles();});
+    resizeFX(); initRays(); initBubbles(); requestAnimationFrame(drawFX);
+    
 
-    // Sand + water renderer (cracks removed)
+    
+    // Sand + Water renderer v73 (sequential + easing, textured sand, subtle tints, seagrass on overtime)
     function SandWater(canvas, worked, compUsed, overtime){
       const ctx = canvas.getContext('2d');
       let raf=0, t=0, DPR=1, w=0, h=0;
       const bubblesBottom=[], bubblesTop=[];
+
+      // Easing
+      const clamp=(x,min=0,max=1)=>Math.max(min,Math.min(max,x));
+      const easeOutCubic = p => 1 - Math.pow(1 - p, 3);
+      const easeInOutCubic = p => (p<.5) ? 4*p*p*p : 1 - Math.pow(-2*p+2,3)/2;
+
+      // Sequencing
+      const SAND_DUR = 900, WATER_DUR = 800;
+      let phase = 0, phaseStart = performance.now(); // 0=sand,1=water,2=done
 
       function size(){
         DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1));
@@ -337,57 +478,171 @@ html, body { overflow-x: hidden; }
         w = canvas.width  = Math.floor(cw * DPR);
         h = canvas.height = Math.floor(ch * DPR);
       }
-      function spawn(arr, area, count){ for(let i=0;i<count;i++){ arr.push({ x: area.x + Math.random()*area.w, y: area.y + area.h + Math.random()*10, r: 1 + Math.random()*2, vy: -(0.15+Math.random()*0.35)*DPR, drift:(Math.random()*0.4-0.2)*DPR }); } }
-      function noise(y){ return (Math.sin(y*0.07 + t*0.8) + Math.sin(y*0.03 + t*0.6 + 2))/2; }
+      function spawn(arr, area, count){
+        for(let i=0;i<count;i++){
+          arr.push({ x: area.x + Math.random()*area.w, y: area.y + area.h + Math.random()*10, r: 1 + Math.random()*2, vy: -(0.15+Math.random()*0.35)*DPR, drift:(Math.random()*0.4-0.2)*DPR });
+        }
+      }
+      function n1(x,k){ return Math.sin(x*0.012 + t*k); }
+      function ridgeY(base,x,amp){ return base + n1(x,1.8)*amp + Math.sin(x*0.045 + t*1.1)*amp*0.35; }
+
+      function drawSand(areaY){
+        const topY = areaY;
+        const grd = ctx.createLinearGradient(0, topY, 0, h);
+        grd.addColorStop(0,'#e3d3a9'); // light beige
+        grd.addColorStop(1,'#bf9a63'); // warm sand
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, topY, w, h-topY);
+
+        // Stippled grains (like the reference)
+        const grains = Math.floor(w*(h-topY)*0.0005);
+        for(let i=0;i<grains;i++){
+          const nx = Math.random()*w;
+          const ny = topY + Math.random()*(h-topY);
+          const a = 0.22 + Math.random()*0.25;
+          ctx.fillStyle = `rgba(120,100,60,${a})`;
+          ctx.fillRect(nx,ny,1,1);
+        }
+        // Larger speckles
+        for(let i=0;i<Math.floor(w*(h-topY)*0.00008);i++){
+          const nx=Math.random()*w, ny=topY+Math.random()*(h-topY);
+          ctx.fillStyle='rgba(90,70,30,0.22)';
+          ctx.beginPath(); ctx.arc(nx,ny,Math.random()*1.8+0.5,0,Math.PI*2); ctx.fill();
+        }
+        // Dune-like soft ridges
+        ctx.fillStyle='rgba(255,255,255,0.06)';
+        for(let r=0;r<4;r++){
+          ctx.beginPath();
+          const base = topY + (h-topY)*(0.15 + r*0.18);
+          ctx.moveTo(0, ridgeY(base,0,2.5*DPR));
+          for(let x=0;x<=w;x+=3){
+            ctx.lineTo(x, ridgeY(base,x,2.5*DPR));
+          }
+          ctx.lineTo(w, base+2*DPR);
+          ctx.lineTo(0, base+2*DPR);
+          ctx.closePath(); ctx.fill();
+        }
+      }
+
+      function drawWater(area, tint){
+        const WATER_BASE_TOP = 'rgba(110,180,255,0.55)';
+        const WATER_BASE_BOT = 'rgba(30,90,180,0.75)';
+        const grdW=ctx.createLinearGradient(0,area.y,0,area.y+area.h);
+        grdW.addColorStop(0,WATER_BASE_TOP);
+        grdW.addColorStop(1,WATER_BASE_BOT);
+        ctx.fillStyle=grdW; ctx.fillRect(area.x,area.y,area.w,area.h);
+
+        const arr = (area.y > h*0.5) ? bubblesTop : bubblesBottom;
+        if(arr.length<28) spawn(arr, area, 2);
+        for(let i=arr.length-1;i>=0;i--){
+          const b=arr[i]; b.y+=b.vy; b.x+=Math.sin((t+i)*0.9)*0.22*DPR+b.drift;
+          ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.fill();
+          if(b.y<area.y+3*DPR) arr.splice(i,1);
+        }
+        // surface shimmer
+        const waveY=area.y + 6*DPR + Math.sin(t*2.0)*2*DPR;
+        ctx.beginPath(); ctx.moveTo(0,waveY);
+        for(let x=0;x<=w;x+=4){
+          const y=waveY + Math.sin(x*0.045 + t*2.0)*2*DPR + Math.sin(x*0.03 + t*1.6)*1.2*DPR;
+          ctx.lineTo(x,y);
+        }
+        ctx.lineTo(w,area.y); ctx.lineTo(0,area.y); ctx.closePath();
+        ctx.fillStyle='rgba(255,255,255,0.07)'; ctx.fill();
+
+        if (tint){
+          ctx.fillStyle = tint;
+          ctx.fillRect(area.x,area.y,area.w,area.h);
+        }
+      }
+
+      function drawSeagrass(area){
+        const blades = Math.max(3, Math.floor(area.w / (40*DPR)));
+        ctx.lineWidth = 2*DPR; ctx.strokeStyle = 'rgba(80,180,120,0.8)';
+        for(let i=0;i<blades;i++){
+          const x = i * (area.w/(blades-1));
+          const sway = Math.sin(t*1.8 + i)*10*DPR;
+          const baseX = x + sway*0.2;
+          const baseY = area.y + area.h - 2*DPR;
+          ctx.beginPath();
+          ctx.moveTo(area.x+baseX, baseY);
+          const midX = baseX + Math.sin(t*1.6 + i*0.8)*16*DPR;
+          const midY = baseY - area.h*0.55;
+          const tipX = baseX + Math.sin(t*1.9 + i)*22*DPR;
+          const tipY = baseY - area.h*0.92;
+          ctx.quadraticCurveTo(area.x+midX, midY, area.x+tipX, tipY);
+          ctx.stroke();
+        }
+      }
 
       function draw(){
         t += 0.016;
-        ctx.clearRect(0,0,w,h);
         const half = h*0.5;
+        const sandTarget = Math.min(half, half * (worked / 504));
+        const compTarget = Math.min(Math.max(0, half - sandTarget), half * (compUsed / 504));
+        const overTarget = Math.min(half, half * (Math.max(0,overtime) / 504));
 
-        const sandH = Math.min(half, half * (worked / 504));
-        const compH = Math.min(Math.max(0, half - sandH), half * (compUsed / 504));
-        const overH = Math.min(half, half * (Math.max(0,overtime) / 504));
+        ctx.clearRect(0,0,w,h);
 
-        if (sandH>0){
-          const topY = h - sandH;
-          const grd = ctx.createLinearGradient(0, topY, 0, h); grd.addColorStop(0,'#daca9b'); grd.addColorStop(1,'#b8965b');
-          ctx.fillStyle = grd; ctx.fillRect(0, topY, w, h-topY);
-          for(let i=0;i<Math.floor(w*h*0.00035);i++){ const nx=Math.random()*w, ny=topY+Math.random()*(h-topY); ctx.fillStyle=`rgba(120,100,60,${Math.random()*0.35})`; ctx.fillRect(nx,ny,1,1);}
-          for(let i=0;i<Math.floor(w*h*0.00005);i++){ const nx=Math.random()*w, ny=topY+Math.random()*(h-topY); ctx.fillStyle='rgba(90,70,30,0.25)'; ctx.beginPath(); ctx.arc(nx,ny,Math.random()*1.6+0.4,0,Math.PI*2); ctx.fill(); }
-          ctx.beginPath(); ctx.moveTo(0, topY);
-          for(let x=0;x<=w;x+=3){ const y=topY - 3*DPR + noise(x)*3*DPR; ctx.lineTo(x,y); } ctx.lineTo(w, topY); ctx.closePath(); ctx.fillStyle='rgba(255,255,255,0.06)'; ctx.fill();
+        const now = performance.now();
+        const elapsed = now - phaseStart;
+
+        if (phase === 0){
+          // Sand first (eased)
+          const p = easeInOutCubic(clamp(elapsed / SAND_DUR));
+          const sandH = sandTarget * p;
+          const sandTop = h - sandH;
+          if (sandH > 0) drawSand(sandTop);
+          if (p >= 1){ phase = 1; phaseStart = performance.now(); }
+        } else if (phase === 1){
+          // Water only after sand finished
+          const sandTop = h - sandTarget;
+          if (sandTarget>0) drawSand(sandTop);
+          const p = easeOutCubic(clamp(elapsed / WATER_DUR));
+          const compH = compTarget * p;
+          if (compH>0){
+            const area={x:0,y:h - sandTarget - compH,w:w,h:compH};
+            const tint = compUsed>0 ? 'rgba(255,60,60,0.10)' : null; // minimal red
+            drawWater(area, tint);
+          }
+          const overH = overTarget * p;
+          if (overH>0){
+            const area={x:0,y:half - overH,w:w,h:overH};
+            const tint = (overtime>0) ? 'rgba(60,200,120,0.12)' : null; // subtle green
+            drawWater(area, tint);
+            if (overtime>0) drawSeagrass(area);
+          }
+          if (p >= 1){ phase = 2; }
+        } else {
+          // Steady state
+          const sandTop = h - sandTarget;
+          if (sandTarget>0) drawSand(sandTop);
+          if (compTarget>0){
+            const area={x:0,y:h - sandTarget - compTarget,w:w,h:compTarget};
+            const tint = compUsed>0 ? 'rgba(255,60,60,0.10)' : null;
+            drawWater(area, tint);
+          }
+          if (overTarget>0){
+            const area={x:0,y:half - overTarget,w:w,h:overTarget};
+            const tint = (overtime>0) ? 'rgba(60,200,120,0.12)' : null;
+            drawWater(area, tint);
+            if (overtime>0) drawSeagrass(area);
+          }
         }
 
-        if (compH>0){
-          const area={x:0,y:h - sandH - compH,w:w,h:compH}; const waveY=area.y + 6*DPR + Math.sin(t*1.8)*2*DPR;
-          const grdW=ctx.createLinearGradient(0,area.y,0,area.y+area.h); grdW.addColorStop(0,'rgba(100,180,255,0.55)'); grdW.addColorStop(1,'rgba(30,90,180,0.7)');
-          ctx.fillStyle=grdW; ctx.fillRect(area.x,area.y,area.w,area.h);
-          if(bubblesBottom.length<28) spawn(bubblesBottom, area, 2);
-          for(let i=bubblesBottom.length-1;i>=0;i--){ const b=bubblesBottom[i]; b.y+=b.vy; b.x+=Math.sin((t+i)*0.8)*0.2*DPR+b.drift; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.fill(); if(b.y<area.y+4*DPR) bubblesBottom.splice(i,1); }
-          ctx.beginPath(); ctx.moveTo(0,waveY); for(let x=0;x<=w;x+=4){ const y=waveY + Math.sin(x*0.04 + t*2.2)*2*DPR + Math.sin(x*0.025 + t*1.7)*1.2*DPR; ctx.lineTo(x,y);} ctx.lineTo(w,area.y); ctx.lineTo(0,area.y); ctx.closePath(); ctx.fillStyle='rgba(255,255,255,0.08)'; ctx.fill();
-        }
-
-        if (overH>0){
-          const area={x:0,y:half - overH,w:w,h:overH}; const waveY=area.y + 6*DPR + Math.sin(t*2.0)*2*DPR;
-          const grdW2=ctx.createLinearGradient(0,area.y,0,area.y+area.h); grdW2.addColorStop(0,'rgba(120,200,255,0.55)'); grdW2.addColorStop(1,'rgba(10,70,160,0.75)');
-          ctx.fillStyle=grdW2; ctx.fillRect(area.x,area.y,area.w,area.h);
-          if(bubblesTop.length<20) spawn(bubblesTop, area, 1);
-          for(let i=bubblesTop.length-1;i>=0;i--){ const b=bubblesTop[i]; b.y+=b.vy; b.x+=Math.sin((t+i)*1.1)*0.25*DPR+b.drift; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.fill(); if(b.y<area.y+2*DPR) bubblesTop.splice(i,1); }
-          ctx.beginPath(); ctx.moveTo(0,waveY); for(let x=0;x<=w;x+=4){ const y=waveY + Math.sin(x*0.05 + t*2.0)*2*DPR + Math.sin(x*0.03 + t*1.6)*1.2*DPR; ctx.lineTo(x,y);} ctx.lineTo(w,area.y); ctx.lineTo(0,area.y); ctx.closePath(); ctx.fillStyle='rgba(255,255,255,0.08)'; ctx.fill();
-        }
-
-        // midline
-        const ctxLine = ctx; ctxLine.strokeStyle='rgba(255,255,255,0.06)'; ctxLine.lineWidth=1*DPR; ctxLine.beginPath(); ctxLine.moveTo(0,h*0.5); ctxLine.lineTo(w,h*0.5); ctxLine.stroke();
+        // Midline
+        ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.lineWidth=1*DPR;
+        ctx.beginPath(); ctx.moveTo(0,half); ctx.lineTo(w,half); ctx.stroke();
 
         raf = requestAnimationFrame(draw);
       }
-      function start(){ cancel(); size(); raf = requestAnimationFrame(draw); }
+
+      function start(){ cancel(); size(); phase=0; phaseStart=performance.now(); raf = requestAnimationFrame(draw); }
       function cancel(){ if(raf) cancelAnimationFrame(raf); raf=0; }
       const ro = new ResizeObserver(()=>start()); ro.observe(canvas);
       requestAnimationFrame(start);
       return { cancel, start };
     }
+
 
     // Views
     const views={menu:document.getElementById('view-menu'),calendar:document.getElementById('view-calendar'),logger:document.getElementById('view-logger')};
@@ -398,6 +653,11 @@ html, body { overflow-x: hidden; }
 
     function renderMenu(){ const ws=startOfWeekMon(new Date()); let sum=0; for(let i=0;i<7;i++){ sum+=workMins(toDateStr(addDays(ws,i))); } document.getElementById('pillWeek').textContent='Weekly hours: '+fmtHM(sum); document.getElementById('pillBank').textContent='Overtime bank: '+fmtSignedHM(overtimeBank()); }
 
+    
+    // Week navigation
+    document.getElementById('wPrev').addEventListener('click', ()=>{ weekStart = addDays(weekStart, -7); renderWeek(); });
+    document.getElementById('wNext').addEventListener('click', ()=>{ weekStart = addDays(weekStart,  7); renderWeek(); });
+    document.getElementById('wToday').addEventListener('click',()=>{ weekStart = startOfWeekMon(new Date()); renderWeek(); });
     // Calendar
     const weekTitle=document.getElementById('wTitle'), weekStrip=document.getElementById('weekStrip'), calFooter=document.getElementById('calFooter'); let weekStart=startOfWeekMon(new Date());
     const dayControllers = new Map();
@@ -452,27 +712,56 @@ html, body { overflow-x: hidden; }
     function parseHHMM(t){ const [h,m]=t.split(':').map(Number); return h*60+m; }
     function validTime(t){ return /^\\d{2}:\\d{2}$/.test(t); }
     const breaksPane=document.getElementById('breaksPane');
-    function computeTotal(){ const a=document.getElementById('startTime').value.trim(), b=document.getElementById('stopTime').value.trim(); if(!validTime(a)||!validTime(b)){ var __ct=document.getElementById('computedTotal'); if(__ct){ __ct.textContent='0h 00m'; } return 0; }
-      let work=parseHHMM(b)-parseHHMM(a); if(work<0) work+=24*60; let bt=0; breaksPane.querySelectorAll('.break-item').forEach(it=>{ const s=it.querySelector('.bi-start').value.trim(), e=it.querySelector('.bi-stop').value.trim(); if(validTime(s)&&validTime(e)){ let m=parseHHMM(e)-parseHHMM(s); if(m>0) bt+=m; }});
-      const net=Math.max(0,work-bt); if (document.getElementById('computedTotal')) var __ct2=document.getElementById('computedTotal'); if(__ct2){ __ct2.textContent=fmtHM(net); } return net; }
-    function addBreakRow(i={name:'',start:'',stop:''}){
-      const row=document.createElement('div'); row.className='break-item';
-      row.innerHTML = `
-        <div class="bi-name-block">
-          <label>Name</label>
-          <input type="text" class="bi-name" value="${i.name||''}" placeholder="Name">
-        </div>
-        <div class="bi-times">
-          <div><label>Start</label><input type="time" class="bi-start" value="${i.start||''}"></div>
-          <div><label>Stop</label><input type="time" class="bi-stop" value="${i.stop||''}"></div>
-        </div>
-        <div><button class="btn small bi-remove">Remove break</button></div>`;
-      breaksPane.appendChild(row);
-      const onChange=()=>computeTotal();
-      row.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',onChange));
-      row.querySelector('.bi-remove').addEventListener('click',()=>{ row.remove(); computeTotal(); }); computeTotal(); }
-    function clearLoggerFor(ds){ document.getElementById('startTime').value=''; document.getElementById('stopTime').value=''; breaksPane.innerHTML=''; var __ct=document.getElementById('computedTotal'); if(__ct){ __ct.textContent='0h 00m'; } const w=state.work[ds]; document.getElementById('holidayFlag').checked=!!(w&&w.holiday);
-      if(w){ document.getElementById('startTime').value=w.start||''; document.getElementById('stopTime').value=w.stop||''; (w.breaks||[]).forEach(b=>addBreakRow(b)); computeTotal(); } }
+    function computeTotal(){
+  const a=document.getElementById('startTime').value.trim(), b=document.getElementById('stopTime').value.trim();
+  if(!/^\d{2}:\d{2}$/.test(a)||!/^\d{2}:\d{2}$/.test(b)){
+    const ct=document.getElementById('computedTotal'); if(ct){ ct.textContent='0h 00m'; } return 0;
+  }
+  let work=parseHHMM(b)-parseHHMM(a); if(work<0) work+=24*60;
+  let bt=0;
+  breaksPane.querySelectorAll('.break-item').forEach(it=>{
+    const h=parseInt(it.querySelector('.bi-h')?.value||'0',10)||0;
+    const m=parseInt(it.querySelector('.bi-m')?.value||'0',10)||0;
+    bt += Math.max(0, h*60 + m);
+  });
+  const net=Math.max(0,work-bt);
+  const ct=document.getElementById('computedTotal'); if(ct){ ct.textContent=fmtHM(net); }
+  return net;
+}
+    function addBreakRow(i={name:'', mins:0}){
+  const mins = Math.max(0, parseInt(i.mins||0,10)||0);
+  const H = Math.floor(mins/60), M = mins % 60;
+  const row=document.createElement('div'); row.className='break-item';
+  row.innerHTML = `
+    <div class="bi-name-block">
+      <label>Name</label>
+      <input type="text" class="bi-name" value="${i.name||''}" placeholder="Name">
+    </div>
+    <div class="bi-dur">
+      <div><label>Hours</label><input type="number" class="bi-h" min="0" step="1" value="${H}"></div>
+      <div><label>Minutes</label><input type="number" class="bi-m" min="0" max="59" step="1" value="${M}"></div>
+    </div>
+    <div><button class="btn small bi-remove">Remove break</button></div>`;
+  breaksPane.appendChild(row);
+  const onChange=()=>computeTotal();
+  row.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',onChange));
+  row.querySelector('.bi-remove').addEventListener('click',()=>{ row.remove(); computeTotal(); });
+  computeTotal();
+}
+    function clearLoggerFor(ds){
+  document.getElementById('startTime').value='';
+  document.getElementById('stopTime').value='';
+  breaksPane.innerHTML='';
+  const ct=document.getElementById('computedTotal'); if(ct){ ct.textContent='0h 00m'; }
+  const w=state.work[ds];
+  document.getElementById('holidayFlag').checked=!!(w&&w.holiday);
+  if(w){
+    document.getElementById('startTime').value=w.start||'';
+    document.getElementById('stopTime').value=w.stop||'';
+    (w.breaks||[]).forEach(b=>addBreakRow(b));
+    computeTotal();
+  }
+} 
     function renderLogger(){ const input=document.getElementById('logDate'); if(!input.value) input.value=toDateStr(new Date()); clearLoggerFor(input.value); }
     document.getElementById('logDate').addEventListener('change',e=>clearLoggerFor(e.target.value));
     document.getElementById('btnStartNow').addEventListener('click',()=>{document.getElementById('startTime').value=nowHHMM(); computeTotal();});
@@ -480,7 +769,12 @@ html, body { overflow-x: hidden; }
     document.getElementById('btnAddBreak').addEventListener('click',()=>addBreakRow());
     document.getElementById('startTime').addEventListener('input',computeTotal); document.getElementById('stopTime').addEventListener('input',computeTotal);
     document.getElementById('btnSave').addEventListener('click',()=>{ const ds=document.getElementById('logDate').value||toDateStr(new Date()); const a=document.getElementById('startTime').value.trim(), b=document.getElementById('stopTime').value.trim(); if(!/^\d{2}:\d{2}$/.test(a)||!/^\d{2}:\d{2}$/.test(b)){ /* allow empty save */ }
-      const net=computeTotal(); const breaks=[]; document.querySelectorAll('#breaksPane .break-item').forEach(it=>breaks.push({name:it.querySelector('.bi-name').value.trim(),start:it.querySelector('.bi-start').value.trim(),stop:it.querySelector('.bi-stop').value.trim()}));
+      const net=computeTotal(); const breaks=[]; document.querySelectorAll('#breaksPane .break-item').forEach(it=>{
+  const name = it.querySelector('.bi-name')?.value.trim() || '';
+  const h = parseInt(it.querySelector('.bi-h')?.value||'0',10)||0;
+  const m = parseInt(it.querySelector('.bi-m')?.value||'0',10)||0;
+  breaks.push({ name, mins: Math.max(0, h*60 + m) });
+});
       const holiday=document.getElementById('holidayFlag').checked; state.work[ds]={start:a,stop:b,breaks,netMins:net,holiday}; save(); renderMenu(); renderWeek(); toast('Day saved'); show('calendar'); });
     document.getElementById('btnResetWork').addEventListener('click',()=>{ const ds=document.getElementById('logDate').value||toDateStr(new Date()); if(state.work[ds]) delete state.work[ds]; if(state.comp[ds]) delete state.comp[ds]; save(); clearLoggerFor(ds); renderMenu(); renderWeek(); toast('Day reset'); });
 
@@ -508,7 +802,7 @@ setTimeout(positionBubbleLayout, 100);
 window.addEventListener('resize', positionBubbleLayout, { once: true });
 
       const wObj = state.work[ds]||{};
-      document.getElementById('dBreaks').textContent= (wObj.breaks||[]).map(b=>`${b.name||'Break'} ${b.start}-${b.stop}`).join(', ') || '—';
+      document.getElementById('dBreaks').textContent= (wObj.breaks||[]).map(b=>`${b.name||'Break'} ${fmtHM(b.mins||0)}`).join(', ') || '—';
       document.getElementById('dWorked').textContent= fmtHM(worked);
       document.getElementById('dCompUsed').textContent= fmtHM(compUsed);
       document.getElementById('dOver').textContent  = fmtHM(Math.max(0,overtime));
@@ -568,50 +862,220 @@ window.addEventListener('resize', positionBubbleLayout, { once: true });
       navigator.serviceWorker.addEventListener('controllerchange', ()=>{ /* page will reload */ });
     }
   
-    // ---- SAFE REBIND ----
-    /* SAFE REBIND */ 
-    (function(){
-      function byId(id){ return document.getElementById(id); }
-      function validTime(t){ return /^\d{2}:\d{2}$/.test(t); }
-      function parseHHMM(t){ const [h,m]=t.split(':').map(Number); return h*60+m; }
-      function fmt(m){ return (Math.floor(m/60))+'h '+String(m%60).padStart(2,'0')+'m'; }
-      function computeNet(){
-        const a=byId('startTime').value.trim(), b=byId('stopTime').value.trim();
-        if(!validTime(a)||!validTime(b)) return 0;
-        let w=parseHHMM(b)-parseHHMM(a); if(w<0) w+=24*60;
-        let bt=0; document.querySelectorAll('#breaksPane .break-item').forEach(it=>{
-          const s=it.querySelector('.bi-start')?.value.trim()||'', e=it.querySelector('.bi-stop')?.value.trim()||'';
-          if(validTime(s)&&validTime(e)){ let m=parseHHMM(e)-parseHHMM(s); if(m>0) bt+=m; }
-        });
-        return Math.max(0,w-bt);
+    // ---- SAFE REBIND removed in v76 deepfix: prevented double-binding and old format saves.
+// --- Cloud Sync (GitHub Contents API) ---
+(function(){
+  const openBtn = document.getElementById('mSync');
+  const panel   = document.getElementById('syncPanel');
+  const backdrop= document.getElementById('syncBackdrop');
+  const $ = id => document.getElementById(id);
+
+  const owner=$('ghOwner'), repo=$('ghRepo'), branch=$('ghBranch'), pathI=$('ghPath'), token=$('ghToken');
+  const btnL=$('ghLoad'), btnS=$('ghSave');
+
+  function loadPrefs(){
+    const p = JSON.parse(localStorage.getItem('hourlogger.sync')||'{}');
+    if(owner) owner.value=p.owner||''; if(repo) repo.value=p.repo||''; if(branch) branch.value=p.branch||'';
+    if(pathI) pathI.value=p.path||'data/hourlogger-data.json'; if(token) token.value=p.token||'';
+  }
+  function savePrefs(){
+    const payload={owner:owner?.value.trim(),repo:repo?.value.trim(),branch:(branch?.value.trim()||'main'),path:(pathI?.value.trim()||'data/hourlogger-data.json'),token:token?.value.trim()};
+    localStorage.setItem('hourlogger.sync', JSON.stringify(payload));
+  }
+  function showPanel(){ loadPrefs(); if(panel) panel.style.display='block'; }
+  function hidePanel(){ if(panel) panel.style.display='none'; savePrefs(); }
+  if(openBtn) openBtn.addEventListener('click', showPanel);
+  if(backdrop) backdrop.addEventListener('click', hidePanel);
+
+  function getPrefs(){ const p = JSON.parse(localStorage.getItem('hourlogger.sync')||'{}'); return { owner:p.owner||'', repo:p.repo||'', branch:p.branch||'main', path:p.path||'data/hourlogger-data.json', token:p.token||'' }; }
+  async function ghHeaders(t){ return { 'Authorization':'token '+t, 'Accept':'application/vnd.github+json' }; }
+  async function ghGetFile(p){ const url=`https://api.github.com/repos/${p.owner}/${p.repo}/contents/${encodeURIComponent(p.path)}?ref=${encodeURIComponent(p.branch)}`; const r=await fetch(url,{headers:await ghHeaders(p.token)}); if(r.status===404) return null; if(!r.ok) throw new Error('GitHub GET failed: '+r.status); return await r.json(); }
+  async function ghPutFile(p, content, sha){ const url=`https://api.github.com/repos/${p.owner}/${p.repo}/contents/${encodeURIComponent(p.path)}`; const body={message:'Hour Logger sync',content:btoa(unescape(encodeURIComponent(content))),branch:p.branch}; if(sha) body.sha=sha; const r=await fetch(url,{method:'PUT',headers:await ghHeaders(p.token),body:JSON.stringify(body)}); if(!r.ok) throw new Error('GitHub PUT failed: '+r.status); return await r.json(); }
+
+  async function doLoad(){ try{ const p=getPrefs(); if(!p.token||!p.owner||!p.repo) throw new Error('Missing owner/repo/token'); const meta=await ghGetFile(p); if(!meta){ alert('File not found (save once first).'); return; } const raw=atob(meta.content.replace(/\n/g,'')); const obj=JSON.parse(raw); if(obj && typeof obj==='object'){ if(!obj.work) obj.work={}; if(!obj.comp) obj.comp={}; localStorage.setItem('hourlogger.data', JSON.stringify(obj)); window.state=obj; renderMenu&&renderMenu(); renderWeek&&renderWeek(); toast&&toast('Loaded from GitHub'); } }catch(e){ console.error(e); alert('Load failed: '+e.message); } }
+  async function doSave(){ try{ const p=getPrefs(); if(!p.token||!p.owner||!p.repo) throw new Error('Missing owner/repo/token'); const content=localStorage.getItem('hourlogger.data') || JSON.stringify(state||{}); const meta=await ghGetFile(p); await ghPutFile(p, content, meta && meta.sha); toast&&toast('Saved to GitHub'); hidePanel(); }catch(e){ console.error(e); alert('Save failed: '+e.message); } }
+  async function saveSilently(){ try{ const p=getPrefs(); if(!p.token||!p.owner||!p.repo) return; const content=localStorage.getItem('hourlogger.data') || JSON.stringify(state||{}); const meta=await ghGetFile(p); await ghPutFile(p, content, meta && meta.sha); }catch(_e){} }
+
+  async function loadSilently(){
+    try{
+      const p=getPrefs(); if(!p.token||!p.owner||!p.repo) return false;
+      const meta=await ghGetFile(p); if(!meta) return false;
+      const raw=atob(meta.content.replace(/\n/g,''));
+      const obj=JSON.parse(raw);
+      if(obj && typeof obj==='object'){
+        if(!obj.work) obj.work={}; if(!obj.comp) obj.comp={};
+        localStorage.setItem('hourlogger.data', JSON.stringify(obj));
+        window.state=obj;
+        return true;
       }
-      function saveDay(){
+      return false;
+    }catch(_e){ return false; }
+  }
+
+
+  if(btnL) btnL.addEventListener('click', doLoad);
+  if(btnS) btnS.addEventListener('click', doSave);
+
+  window.hourloggerCloud = { save: doSave, saveSilently: saveSilently, loadSilently: loadSilently, auto: true };
+
+      // Auto-load from GitHub on startup (silent, once per page load)
+      (async function(){
         try{
-          const a=byId('startTime').value.trim(), b=byId('stopTime').value.trim();
-          /* allow empty save even without start/stop */
-          const ds = byId('logDate').value || (new Date()).toISOString().slice(0,10);
-          const net = (validTime(a) && validTime(b)) ? computeNet() : 0;
-          const breaks=[]; document.querySelectorAll('#breaksPane .break-item').forEach(it=>breaks.push({
-            name: it.querySelector('.bi-name')?.value.trim()||'',
-            start: it.querySelector('.bi-start')?.value.trim()||'',
-            stop: it.querySelector('.bi-stop')?.value.trim()||''
-          }));
-          const holiday = byId('holidayFlag').checked;
-          try { state.work ||= {}; } catch(e){ window.state = window.state || {}; state.work = state.work || {}; }
-          state.work[ds] = { start:a, stop:b, breaks, netMins: net, holiday };
-          save();
-          if (typeof renderMenu==='function') renderMenu();
-          if (typeof renderWeek==='function') renderWeek();
-          if (typeof toast==='function') toast('Day saved'); if (typeof show==='function') show('calendar');
-        } catch (e){
-          console.error('Save failed', e);
-          alert('Save failed. Please try again.');
+          const p = (function(){ try { return JSON.parse(localStorage.getItem('hourlogger.sync')||'{}'); } catch(_) { return {}; } })();
+          if(p && p.token && p.owner && p.repo){
+            if(!sessionStorage.getItem('hourlogger.autoload53')){
+              sessionStorage.setItem('hourlogger.autoload53','1');
+              const ok = await loadSilently();
+              if(ok){
+                try { if (typeof renderMenu==='function') renderMenu(); if (typeof renderWeek==='function') renderWeek(); } catch(_){}
+              }
+            }
+          }
+        }catch(_){}
+      })();
+    
+})();
+  </script>
+
+<!-- v67 overrides & quick sync -->
+<script>
+(() => {
+  const LS=localStorage, SS=sessionStorage;
+  function id(x){ return document.getElementById(x); }
+  function getPrefs(){
+    try {
+      const p = JSON.parse(LS.getItem('hourlogger.sync')||'{}');
+      return {
+        owner: p.owner|| (id('ghOwner')&&id('ghOwner').value.trim()) || '',
+        repo:  p.repo || (id('ghRepo') &&id('ghRepo').value.trim())  || '',
+        branch:p.branch|| (id('ghBranch')&&id('ghBranch').value.trim())||'main',
+        path:  p.path || (id('ghPath')  &&id('ghPath').value.trim())  || 'data/hourlogger-data.json',
+        token: p.token|| (id('ghToken') &&id('ghToken').value.trim()) || ''
+      };
+    } catch(_) {
+      return { owner:'', repo:'', branch:'main', path:'data/hourlogger-data.json', token:'' };
+    }
+  }
+  async function clearCaches(){
+    try{
+      if(navigator.serviceWorker?.controller){
+        navigator.serviceWorker.controller.postMessage({type:'clearCaches'});
+      }
+      if('caches' in window){
+        const ks=await caches.keys();
+        await Promise.all(ks.map(k=>caches.delete(k)));
+      }
+    }catch(_){}
+  }
+  async function fetchJSONWithToken(p){
+    if(p.token){
+      const url = `https://api.github.com/repos/${p.owner}/${p.repo}/contents/${encodeURIComponent(p.path)}?ref=${encodeURIComponent(p.branch)}`;
+      const r = await fetch(url, { headers: { 'Authorization': 'token ' + p.token, 'Accept': 'application/vnd.github+json' }, cache:'no-store' });
+      if(!r.ok) throw new Error('GitHub API failed: ' + r.status);
+      const meta = await r.json();
+      const text = atob(String(meta.content||'').replace(/\n/g,''));
+      return JSON.parse(text);
+    } else {
+      const rawUrl = `https://raw.githubusercontent.com/${p.owner}/${p.repo}/${p.branch}/${p.path}`;
+      const r = await fetch(rawUrl, { cache:'no-store' });
+      if(!r.ok) throw new Error('Raw fetch failed: ' + r.status);
+      return await r.json();
+    }
+  }
+  function hardReload(){
+    const u = new URL(location.href); u.searchParams.set('__hr', Date.now().toString()); location.replace(u.toString());
+  }
+  // v67 Save SETTINGS ONLY
+  window.doSave = function(){
+    const p=getPrefs();
+    if(!p.owner || !p.repo || !p.path){ alert('Please fill owner, repo and path.'); return; }
+    LS.setItem('hourlogger.sync', JSON.stringify(p));
+    if (window.toast) window.toast('Cloud sync settings saved (no push).');
+  };
+  // v67 Load: clear caches -> write -> hard refresh
+  window.doLoad = async function(){
+    const p=getPrefs();
+    if(!p.owner || !p.repo || !p.path){ alert('Missing owner/repo/path'); return; }
+    try{
+      const prev = LS.getItem('hourlogger.data'); if(prev) LS.setItem('hourlogger.backup', prev);
+      const data = await fetchJSONWithToken(p);
+      await clearCaches();
+      LS.setItem('hourlogger.data', JSON.stringify(data||{}));
+      SS.setItem('hourlogger.justLoaded','1');
+      if (navigator.serviceWorker?.controller){ navigator.serviceWorker.controller.postMessage({type:'SKIP_WAITING'}); }
+      setTimeout(hardReload, 120);
+    }catch(e){ console.error(e); alert('Load failed. Check repo/branch/path and token (if private).'); }
+  };
+  // Quick Sync UI
+  function humanize(ts){ if(!ts) return '—'; try{ const d=new Date(ts); if(isNaN(d.getTime())) return '—'; return d.toLocaleString(); }catch(_){ return '—'; } }
+  function updateLastPushTexts(){
+    const ts = LS.getItem('hourlogger.lastPushAt') || '';
+    document.querySelectorAll('.quick-sync [data-last-push]').forEach(el=> el.textContent = 'Last push: ' + humanize(ts));
+  }
+  
+  function ensureQuickSync(){
+    // create one fixed quick-sync bar at bottom
+    if(document.querySelector('.quick-sync.qs-fixed')){ updateLastPushTexts(); return; }
+    const wrap = document.createElement('div');
+    wrap.className = 'quick-sync qs-fixed';
+    wrap.innerHTML = '<div class="last"><span data-last-push>Last push: —</span></div>' +
+                     '<div class="qs-actions">' +
+                     '<button class="btn small primary" data-action="push-now">Push now</button>' +
+                     '<button class="btn small" data-action="load-now">Load from GitHub</button>' +
+                     '</div>';
+    document.body.appendChild(wrap);
+    updateLastPushTexts();
+  }
+  ensureQuickSync();
+
+  document.addEventListener('hourlogger:view', ensureQuickSync);
+  document.addEventListener('click', async (e)=>{
+    const btn = e.target.closest('[data-action]'); if(!btn) return;
+    const act = btn.getAttribute('data-action');
+    if(act==='load-now'){ e.preventDefault(); if(window.doLoad) return window.doLoad(); }
+    if(act==='push-now'){ e.preventDefault();
+      try{
+        const p = getPrefs();
+        if(p && p.token && p.owner && p.repo){
+          const headers = { 'Authorization':'token '+p.token, 'Accept':'application/vnd.github+json' };
+          const getUrl  = `https://api.github.com/repos/${p.owner}/${p.repo}/contents/${encodeURIComponent(p.path||'data/hourlogger-data.json')}?ref=${encodeURIComponent(p.branch||'main')}`;
+          const r1 = await fetch(getUrl, { headers, cache:'no-store' });
+          const meta = r1.ok ? await r1.json() : null;
+          const sha = meta && meta.sha ? meta.sha : undefined;
+          const content = LS.getItem('hourlogger.data') || JSON.stringify(window.state||{});
+          const putUrl = `https://api.github.com/repos/${p.owner}/${p.repo}/contents/${encodeURIComponent(p.path||'data/hourlogger-data.json')}`;
+          const body = { message:'Hour Logger push', content:btoa(unescape(encodeURIComponent(content))), branch:(p.branch||'main') };
+          if(sha) body.sha = sha;
+          const r2 = await fetch(putUrl, { method:'PUT', headers, body: JSON.stringify(body) });
+          if(!r2.ok) throw new Error('Push failed: '+r2.status);
+        } else if (window.hourloggerCloud && typeof window.hourloggerCloud.saveSilently==='function'){
+          await window.hourloggerCloud.saveSilently();
+        } else {
+          alert('Cloud sync is not configured.'); return;
+        }
+        LS.setItem('hourlogger.lastPushAt', new Date().toISOString());
+        if (typeof toast==='function') toast('Pushed to GitHub');
+        updateLastPushTexts();
+      }catch(err){ console.error(err); alert('Push failed. Check owner/repo/path and token.'); }
+    }
+  });
+  // Wrap existing silent push to also stamp lastPushAt
+  setTimeout(()=>{
+    try{
+      if (window.hourloggerCloud && typeof window.hourloggerCloud.saveSilently==='function'){
+        const orig = window.hourloggerCloud.saveSilently;
+        window.hourloggerCloud.saveSilently = async function(){
+          try{ await orig(); } finally{
+            localStorage.setItem('hourlogger.lastPushAt', new Date().toISOString());
+            updateLastPushTexts();
+          }
         }
       }
-      const btn = byId('btnSave');
-      if(btn){ btn.addEventListener('click', saveDay); }
-    })();
-    
-  </script>
+    }catch(_){}
+  },0);
+  document.documentElement.setAttribute('data-app-version','v73');
+})();
+</script>
+
 </body>
 </html>
